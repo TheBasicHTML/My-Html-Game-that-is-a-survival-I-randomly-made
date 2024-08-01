@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survival Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #titleScreen, #waitingRoom {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            flex-direction: column;
+            gap: 20px;
+        }
+        #titleScreen button, #waitingRoom button {
+            padding: 10px 20px;
+            font-size: 20px;
+        }
+        .mobile-controls {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 10px;
+        }
+        .mobile-controls button {
+            width: 50px;
+            height: 50px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+<div id="titleScreen">
+    <h1>Survival Game</h1>
+    <button id="startSinglePlayer">Start Single Player</button>
+    <button id="startTwoPlayer">Start Two Player</button>
+    <button id="enableMobileControls">Enable Mobile Controls</button>
+</div>
+<div id="waitingRoom" style="display: none;">
+    <h1>Waiting for another player...</h1>
+    <button id="cancelWait">Cancel</button>
+</div>
+<canvas id="gameCanvas" style="display: none;"></canvas>
+<div id="info" style="display: none;">
+    <div>Score P1: <span id="score1">0</span></div>
+    <div>Health P1: <span id="health1">100</span></div>
+    <div>Score P2: <span id="score2">0</span></div>
+    <div>Health P2: <span id="health2">100</span></div>
+    <div>High Score: <span id="highScore">0</span></div>
+</div>
+<div class="mobile-controls">
+    <button id="up">↑</button>
+    <button id="down">↓</button>
+    <button id="left">←</button>
+    <button id="right">→</button>
+</div>
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let socket;
+    let playerIndex;
+    let gameStarted = false;
+
+    const singlePlayer = [
+        { x: canvas.width / 2, y: canvas.height / 2, size: 20, color: 'green', speed: 0.5, maxSpeed: 5, friction: 0.98, dx: 0, dy: 0, score: 0, health: 100 }
+    ];
+
+    const players = [
+        { x: canvas.width / 2, y: canvas.height / 2, size: 20, color: 'green', speed: 0.5, maxSpeed: 5, friction: 0.98, dx: 0, dy: 0, score: 0, health: 100 },
+        { x: canvas.width / 2 + 50, y: canvas.height / 2 + 50, size: 20, color: 'pink', speed: 0.5, maxSpeed: 5, friction: 0.98, dx: 0, dy: 0, score: 0, health: 100 }
+    ];
+
+    const food = { x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: 10 };
+    const obstacles = [];
+    for (let i = 0; i < 5; i++) obstacles.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: 30 });
+
+    let highScore = 0;
+
+    function drawPlayer(player) {
+        ctx.fillStyle = player.color;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawFood() {
+        ctx.fillStyle = 'red';
+        ctx.beginPath();
+        ctx.arc(food.x, food.y, food.size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function drawObstacles() {
+        ctx.fillStyle = 'black';
+        obstacles.forEach(obstacle => {
+            ctx.beginPath();
+            ctx.arc(obstacle.x, obstacle.y, obstacle.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    }
+
+    function updatePlayerPosition(player) {
+        player.x += player.dx;
+        player.y += player.dy;
+
+        player.dx *= player.friction;
+        player.dy *= player.friction;
+
+        // Apply momentum
+        const speed = Math.sqrt(player.dx * player.dx + player.dy * player.dy);
+        if (speed > player.maxSpeed) {
+            const ratio = player.maxSpeed / speed;
+            player.dx *= ratio;
+            player.dy *= ratio;
+        }
+
+        if (player.x < player.size) player.x = player.size;
+        if (player.x > canvas.width - player.size) player.x = canvas.width - player.size;
+        if (player.y < player.size) player.y = player.size;
+        if (player.y > canvas.height - player.size) player.y = canvas.height - player.size;
+    }
+
+    function detectCollision(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < a.size + b.size;
+    }
+
+    function updateGame(singlePlayerMode) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const activePlayers = singlePlayerMode ? singlePlayer : players;
+
+        activePlayers.forEach(player => {
+            drawPlayer(player);
+            updatePlayerPosition(player);
+
+            if (detectCollision(player, food)) {
+                player.score++;
+                player.health = Math.min(100, player.health + 10);
+                food.x = Math.random() * canvas.width;
+                food.y = Math.random() * canvas.height;
+                document.getElementById(`score${activePlayers.indexOf(player) + 1}`).textContent = player.score;
+                document.getElementById(`health${activePlayers.indexOf(player) + 1}`).textContent = player.health;
+            }
+
+            obstacles.forEach(obstacle => {
+                if (detectCollision(player, obstacle)) {
+                    player.health -= 1;
+                    if (player.health <= 0) {
+                        if (player.score > highScore) {
+                            highScore = player.score;
+                            document.getElementById('highScore').textContent = highScore;
+                        }
+                        alert(`Game Over for Player ${activePlayers.indexOf(player) + 1}! Your score: ${player.score}`);
+                        document.location.reload();
+                    }
+                    document.getElementById(`health${activePlayers.indexOf(player) + 1}`).textContent = player.health;
+                }
+            });
+
+            if (player.score % 10 === 0 && player.score > 0 && obstacles.length < player.score / 2 + 5) {
+                obstacles.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: 30 });
+            }
+        });
+
+        drawFood();
+        drawObstacles();
+
+        if (!singlePlayerMode && socket && socket.readyState === WebSocket.OPEN) {
+            const data = {
+                type: 'update',
+                players: activePlayers.map(p => ({
+                    x: p.x,
+                    y: p.y,
+                    dx: p.dx,
+                    dy: p.dy,
+                    score: p.score,
+                    health: p.health
+                }))
+            };
+            socket.send(JSON.stringify(data));
+        }
+
+        if (gameStarted) {
+            requestAnimationFrame(() => updateGame(singlePlayerMode));
+        }
+    }
+
+    function movePlayer(player, direction) {
+        switch (direction) {
+            case 'up':
+                player.dy = Math.max(player.dy - player.speed, -player.maxSpeed);
+                break;
+            case 'down':
+                player.dy = Math.min(player.dy + player.speed, player.maxSpeed);
+                break;
+            case 'left':
+                player.dx = Math.max(player.dx - player.speed, -player.maxSpeed);
+                break;
+            case 'right':
+                player.dx = Math.min(player.dx + player.speed, player.maxSpeed);
+                break;
+        }
+    }
+
+    function handleKeydown(e) {
+        if (playerIndex === 0) {
+            if (e.key.startsWith('Arrow')) {
+                movePlayer(singlePlayer[0], e.key.replace('Arrow', '').toLowerCase());
+            }
+        } else if (playerIndex === 1) {
+            if (e.key.startsWith('w') || e.key.startsWith('a') || e.key.startsWith('s') || e.key.startsWith('d')) {
+                const direction = e.key.replace('w', 'up').replace('s', 'down').replace('a', 'left').replace('d', 'right');
+                movePlayer(players[1], direction);
+            }
+        }
+    }
+
+    function handleButtonPress(e) {
+        movePlayer(singlePlayer[0], e.target.id);
+    }
+
+    window.addEventListener('keydown', handleKeydown);
+    document.querySelectorAll('.mobile-controls button').forEach(button => button.addEventListener('touchstart', handleButtonPress));
+
+    document.getElementById('startSinglePlayer').addEventListener('click', () => {
+        document.getElementById('titleScreen').style.display = 'none';
+        document.getElementById('gameCanvas').style.display = 'block';
+        document.getElementById('info').style.display = 'block';
+        document.getElementById('score2').style.display = 'none';
+        document.getElementById('health2').style.display = 'none';
+        playerIndex = 0;
+        gameStarted = true;
+        updateGame(true);
+    });
+
+    document.getElementById('startTwoPlayer').addEventListener('click', () => {
+        document.getElementById('titleScreen').style.display = 'none';
+        document.getElementById('waitingRoom').style.display = 'flex';
+
+        socket = new WebSocket('wss://your-websocket-server'); // Replace with your WebSocket server URL
+        socket.onopen = () => {
+            socket.send(JSON.stringify({ type: 'join' }));
+        };
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === 'start') {
+                document.getElementById('waitingRoom').style.display = 'none';
+                document.getElementById('gameCanvas').style.display = 'block';
+                document.getElementById('info').style.display = 'block';
+                document.getElementById('score2').style.display = 'block';
+                document.getElementById('health2').style.display = 'block';
+                playerIndex = data.playerIndex;
+                gameStarted = true;
+                updateGame(false);
+            } else if (data.type === 'update') {
+                data.players.forEach((p, i) => {
+                    players[i].x = p.x;
+                    players[i].y = p.y;
+                    players[i].dx = p.dx;
+                    players[i].dy = p.dy;
+                    players[i].score = p.score;
+                    players[i].health = p.health;
+                });
+            }
+        };
+    });
+
+    document.getElementById('cancelWait').addEventListener('click', () => {
+        socket.close();
+        document.getElementById('waitingRoom').style.display = 'none';
+        document.getElementById('titleScreen').style.display = 'flex';
+    });
+
+    document.getElementById('enableMobileControls').addEventListener('click', () => {
+        document.querySelector('.mobile-controls').style.display = 'flex';
+    });
+</script>
+</body>
+</html>
