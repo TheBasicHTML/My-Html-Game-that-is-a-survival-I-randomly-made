@@ -9,6 +9,7 @@
             margin: 0;
             overflow: hidden;
             font-family: Arial, sans-serif;
+            touch-action: none;
         }
         canvas {
             display: block;
@@ -36,7 +37,7 @@
             flex-direction: column;
             gap: 20px;
         }
-        #titleScreen button, #waitingRoom button {
+        #titleScreen button, #waitingRoom button, #refreshButton {
             padding: 10px 20px;
             font-size: 20px;
         }
@@ -52,6 +53,15 @@
             width: 50px;
             height: 50px;
             font-size: 18px;
+        }
+        #refreshButton {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #ff4c4c;
+            border: none;
+            color: white;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -74,6 +84,7 @@
     <div>Health P2: <span id="health2">100</span></div>
     <div>High Score: <span id="highScore">0</span></div>
 </div>
+<button id="refreshButton">Refresh Game</button>
 <div class="mobile-controls">
     <button id="up">↑</button>
     <button id="down">↓</button>
@@ -198,41 +209,17 @@
         drawFood();
         drawObstacles();
 
-        if (!singlePlayerMode && socket && socket.readyState === WebSocket.OPEN) {
-            const data = {
-                type: 'update',
-                players: activePlayers.map(p => ({
-                    x: p.x,
-                    y: p.y,
-                    dx: p.dx,
-                    dy: p.dy,
-                    score: p.score,
-                    health: p.health
-                }))
-            };
-            socket.send(JSON.stringify(data));
-        }
-
         if (gameStarted) {
-            requestAnimationFrame(() => updateGame(singlePlayerMode));
+            requestAnimationFrame(() => updateGame(!singlePlayerMode));
         }
     }
 
     function movePlayer(player, direction) {
-        switch (direction) {
-            case 'up':
-                player.dy = Math.max(player.dy - player.speed, -player.maxSpeed);
-                break;
-            case 'down':
-                player.dy = Math.min(player.dy + player.speed, player.maxSpeed);
-                break;
-            case 'left':
-                player.dx = Math.max(player.dx - player.speed, -player.maxSpeed);
-                break;
-            case 'right':
-                player.dx = Math.min(player.dx + player.speed, player.maxSpeed);
-                break;
-        }
+        const speed = player.speed;
+        if (direction === 'up') player.dy -= speed;
+        if (direction === 'down') player.dy += speed;
+        if (direction === 'left') player.dx -= speed;
+        if (direction === 'right') player.dx += speed;
     }
 
     function handleKeydown(e) {
@@ -306,6 +293,15 @@
 
     document.getElementById('enableMobileControls').addEventListener('click', () => {
         document.querySelector('.mobile-controls').style.display = 'flex';
+    });
+
+    document.getElementById('refreshButton').addEventListener('click', () => {
+        document.location.reload();
+    });
+
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
     });
 </script>
 </body>
